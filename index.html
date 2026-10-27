@@ -1,0 +1,132 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IrrigaTech Pro</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:radial-gradient(circle at top,#123b35,#07111b 70%);color:#eafff5;font-family:Arial,sans-serif}
+main{max-width:700px;margin:auto}
+header{text-align:center;padding:20px}
+header .logo{font-size:42px}
+h1{color:#50ffc1;letter-spacing:2px;font-size:30px;margin:8px}
+.sub{color:#91aaa9;font-size:12px;letter-spacing:2px}
+.panel{background:#ffffff09;border:1px solid #5effc233;border-radius:22px;padding:20px;margin:16px 0;box-shadow:0 10px 30px #0004}
+h2{font-size:14px;color:#8bffe0;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:#071b20;border:1px solid #ffffff15;border-radius:16px;padding:22px 10px;text-align:center}
+.icon{font-size:32px;margin-bottom:12px}
+.label{font-size:13px;color:#9ab7b3}
+.value{font-size:19px;font-weight:bold;margin-top:10px}
+.cyan{color:#56dcff}.green{color:#4dffc0}.red{color:#ff7787}
+button{border:0;border-radius:12px;padding:15px;font-size:14px;font-weight:bold;cursor:pointer}
+.connect{width:100%;margin-top:16px;background:linear-gradient(100deg,#25e6a1,#45cfff);color:#06151a}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.on{background:#18d995;color:#062219}.off{background:#ff6176;color:#fff}
+button:active{transform:scale(.98)}
+#msg{text-align:center;font-size:12px;color:#ffcf75;margin-top:13px;overflow-wrap:anywhere}
+ul{list-style:none;padding:0;margin:0}
+li{padding:11px 3px;border-bottom:1px solid #ffffff12;font-size:13px;color:#c9e4df}
+footer{text-align:center;color:#587b78;font-size:11px;padding:20px}
+@media(max-width:380px){body{padding:10px}.panel{padding:14px}h1{font-size:25px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="logo">🌱</div>
+<h1>IrrigaTech Pro</h1>
+<div class="sub">SMART IRRIGATION SYSTEM</div>
+</header>
+
+<section class="panel">
+<h2>◈ MONITORAMENTO</h2>
+<div class="grid">
+<div class="card">
+<div class="icon">🌱</div>
+<div class="label">Estado do solo</div>
+<div id="soil" class="value cyan">Aguardando...</div>
+</div>
+<div class="card">
+<div class="icon">📡</div>
+<div class="label">Bluetooth</div>
+<div id="link" class="value red">Desconectado</div>
+</div>
+</div>
+
+<button class="connect" id="connect">⚡ CONECTAR DISPOSITIVO BLE</button>
+
+<div class="controls">
+<button class="on" onclick="send('LIGAR')">▶ LIGAR BOMBA</button>
+<button class="off" onclick="send('DESLIGAR')">■ DESLIGAR BOMBA</button>
+</div>
+<div id="msg">Conecte um dispositivo compatível para começar.</div>
+</section>
+
+<section class="panel">
+<h2>◷ HISTÓRICO</h2>
+<ul id="history"><li>Sistema iniciado.</li></ul>
+</section>
+<footer>IRRIGATECH PRO · AUTOMAÇÃO INTELIGENTE</footer>
+</main>
+
+<script>
+let tx=null;
+const $=id=>document.getElementById(id);
+
+function log(text){
+ let li=document.createElement('li');
+ li.textContent=new Date().toLocaleTimeString('pt-BR')+' — '+text;
+ $('history').prepend(li);
+ while($('history').children.length>10)$('history').lastChild.remove();
+}
+
+function send(command){
+ if(!tx){
+  $('msg').textContent='Sem conexão de controle. Conecte um dispositivo compatível.';
+  log('Comando não enviado: '+command);
+  return;
+ }
+ tx.writeValue(new TextEncoder().encode(command+'\n'))
+ .then(()=>{ $('msg').textContent='Comando enviado: '+command;log('Comando enviado: '+command); })
+ .catch(e=>{$('msg').textContent='Erro ao enviar: '+e.message;});
+}
+
+$('connect').onclick=async()=>{
+ try{
+  if(!navigator.bluetooth)throw Error('Este navegador não oferece Web Bluetooth.');
+  $('msg').textContent='Procurando dispositivo BLE UART...';
+  const serviceId='6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+  const device=await navigator.bluetooth.requestDevice({
+   filters:[{services:[serviceId]}]
+  });
+  const server=await device.gatt.connect();
+  const service=await server.getPrimaryService(serviceId);
+  const rx=await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+  tx=await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+  await rx.startNotifications();
+  rx.addEventListener('characteristicvaluechanged',e=>{
+   const text=new TextDecoder().decode(e.target.value);
+   text.split(/\r?\n/).forEach(line=>{
+    let m=line.trim().toLowerCase();
+    if(m.includes('solo seco')||m.includes('bomba ligada')){
+     $('soil').textContent='SECO';$('soil').className='value red';
+     log('Solo seco — bomba ligada');
+    }else if(m.includes('terra molhada')||m.includes('bomba desligada')){
+     $('soil').textContent='ÚMIDO';$('soil').className='value cyan';
+     log('Terra molhada — bomba desligada');
+    }
+   });
+  });
+  $('link').textContent='Conectado';$('link').className='value green';
+  $('msg').textContent='BLE conectado: '+(device.name||'dispositivo');
+  log('Dispositivo conectado');
+ }catch(e){
+  $('msg').textContent='Conexão falhou: '+e.message;
+ }
+};
+</script>
+</body>
+</html>
